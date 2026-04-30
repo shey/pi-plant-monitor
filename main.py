@@ -6,6 +6,7 @@ from datetime import datetime
 import requests
 import board
 import adafruit_dht
+import adafruit_bh1750
 from dotenv import load_dotenv
 from adafruit_ads1x15 import ADS1115, AnalogIn, ads1x15
 
@@ -23,6 +24,7 @@ class Config:
     location: str
     measurement: str
     ads1115_address: int
+    bh1750_address: int
 
     @classmethod
     def from_env(cls):
@@ -34,6 +36,7 @@ class Config:
             location=os.getenv("SENSOR_LOCATION", "plant_shelf"),
             measurement=os.getenv("INFLUXDB_MEASUREMENT", "plant_environment"),
             ads1115_address=int(os.getenv("ADS1115_ADDRESS", "0x48"), 16),
+            bh1750_address=int(os.getenv("BH1750_ADDRESS", "0x23"), 16),
         )
 
 
@@ -42,6 +45,7 @@ class Reading:
     temperature_c: float
     humidity_percent: float
     soil_moisture_voltage: float
+    light_lux: float
 
     @property
     def temperature_f(self):
@@ -52,6 +56,7 @@ class Reading:
             temperature_c=round(self.temperature_c, 2),
             humidity_percent=round(self.humidity_percent, 2),
             soil_moisture_voltage=round(self.soil_moisture_voltage, 3),
+            light_lux=round(self.light_lux, 2),
         )
 
 
@@ -89,6 +94,20 @@ class SoilProbe:
         pass
 
 
+class LightSensor:
+    def __init__(self, sensor):
+        self._sensor = sensor
+
+    def read(self):
+        return {
+            "light_lux": self._sensor.lux,
+        }
+
+    def close(self):
+        # BH1750 does not expose a sensor-level close.
+        pass
+
+
 class Environment:
     def __init__(self, sensors):
         self._sensors = sensors
@@ -103,6 +122,7 @@ class Environment:
             temperature_c=values["temperature_c"],
             humidity_percent=values["humidity_percent"],
             soil_moisture_voltage=values["soil_moisture_voltage"],
+            light_lux=values["light_lux"],
         ).rounded()
 
     def close(self):
@@ -149,27 +169,40 @@ class InfluxDB:
             f"temperature_c={reading.temperature_c},"
             f"temperature_f={round(reading.temperature_f, 2)},"
             f"humidity_percent={reading.humidity_percent},"
-            f"soil_moisture_voltage={reading.soil_moisture_voltage}"
+            f"soil_moisture_voltage={reading.soil_moisture_voltage},"
+            f"light_lux={reading.light_lux}"
         )
 
 
-def build_soil_probe(config):
-    i2c_bus = board.I2C()
+def build_i2c_bus():
+    return board.I2C()
 
+
+def build_soil_probe(i2c_bus, config):
     adc = ADS1115(i2c_bus, address=config.ads1115_address)
     soil_channel = AnalogIn(adc, ads1x15.Pin.A0)
 
     return SoilProbe(soil_channel)
 
 
+def build_light_sensor(i2c_bus, config):
+    sensor = adafruit_bh1750.BH1750(i2c_bus, address=config.bh1750_address)
+
+    return LightSensor(sensor)
+
+
 def build_environment(config):
+    i2c_bus = build_i2c_bus()
+
     dht22 = DHT22(board.D17)
-    soil_probe = build_soil_probe(config)
+    soil_probe = build_soil_probe(i2c_bus, config)
+    light_sensor = build_light_sensor(i2c_bus, config)
 
     return Environment(
         sensors=[
             dht22,
             soil_probe,
+            light_sensor,
         ]
     )
 
@@ -182,7 +215,8 @@ def print_reading(reading):
         f"temp_f={reading.temperature_f:.1f} "
         f"temp_c={reading.temperature_c:.1f} "
         f"humidity={reading.humidity_percent:.1f} "
-        f"soil_voltage={reading.soil_moisture_voltage:.3f}"
+        f"soil_voltage={reading.soil_moisture_voltage:.3f} "
+        f"light_lux={reading.light_lux:.2f}"
     )
 
 
@@ -214,4 +248,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
