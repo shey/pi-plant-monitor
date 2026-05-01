@@ -67,6 +67,7 @@ class Reading:
     def light_lux_value(self):
         return round(self.light_lux, 2)
 
+    @property
     def fields(self):
         return {
             "temperature_c": self.temperature_c_value,
@@ -75,6 +76,38 @@ class Reading:
             "soil_moisture_voltage": self.soil_moisture_voltage_value,
             "light_lux": self.light_lux_value,
         }
+
+
+class InfluxReading:
+    def __init__(self, reading):
+        self.reading = reading
+
+    @property
+    def line_protocol_fields(self):
+        return ",".join(
+            f"{name}={value}"
+            for name, value in self.reading.fields.items()
+        )
+
+
+class ConsoleReading:
+    def __init__(self, reading):
+        self.reading = reading
+
+    @property
+    def timestamp(self):
+        return datetime.now().strftime("%a %b %d, %I:%M:%S %p")
+
+    @property
+    def fields(self):
+        return " ".join(
+            f"{name}={value}"
+            for name, value in self.reading.fields.items()
+        )
+
+    @property
+    def output(self):
+        return f"time={self.timestamp} {self.fields}"
 
 
 class DHT22:
@@ -177,6 +210,14 @@ class Environment:
             raise RuntimeError("One or more sensors failed to close") from errors[0]
 
 
+class Console:
+    def write(self, reading):
+        print(ConsoleReading(reading).output)
+
+    def close(self):
+        pass
+
+
 class InfluxDB:
     def __init__(self, config):
         self.url = config.influxdb_url
@@ -210,28 +251,20 @@ class InfluxDB:
     def line_protocol(self, reading):
         return (
             f"{self.measurement},location={self.location} "
-            f"{','.join(f'{name}={value}' for name, value in reading.fields().items())}"
+            f"{InfluxReading(reading).line_protocol_fields}"
         )
-
-
-def print_reading(reading):
-    current_time = datetime.now().strftime("%a %b %d, %I:%M:%S %p")
-
-    print(
-        f"time={current_time} "
-        f"{' '.join(f'{name}={value}' for name, value in reading.fields().items())}"
-    )
 
 
 def main():
     config = Config.from_env()
     environment = Environment.build(config)
+    console = Console()
     influxdb = InfluxDB(config)
 
     try:
         reading = environment.read()
 
-        print_reading(reading)
+        console.write(reading)
         influxdb.write(reading)
 
         return 0
@@ -239,7 +272,7 @@ def main():
     finally:
         close_errors = []
 
-        for resource in (environment, influxdb):
+        for resource in (environment, console, influxdb):
             try:
                 resource.close()
             except Exception as error:
