@@ -47,13 +47,33 @@ class Reading:
     soil_moisture_voltage: float
     light_lux: float
 
+    @property
+    def temperature_c_value(self):
+        return round(self.temperature_c, 2)
+
+    @property
+    def temperature_f(self):
+        return round((self.temperature_c * 9 / 5) + 32, 2)
+
+    @property
+    def humidity_percent_value(self):
+        return round(self.humidity_percent, 2)
+
+    @property
+    def soil_moisture_voltage_value(self):
+        return round(self.soil_moisture_voltage, 3)
+
+    @property
+    def light_lux_value(self):
+        return round(self.light_lux, 2)
+
     def fields(self):
         return {
-            "temperature_c": round(self.temperature_c, 2),
-            "temperature_f": round((self.temperature_c * 9 / 5) + 32, 2),
-            "humidity_percent": round(self.humidity_percent, 2),
-            "soil_moisture_voltage": round(self.soil_moisture_voltage, 3),
-            "light_lux": round(self.light_lux, 2),
+            "temperature_c": self.temperature_c_value,
+            "temperature_f": self.temperature_f,
+            "humidity_percent": self.humidity_percent_value,
+            "soil_moisture_voltage": self.soil_moisture_voltage_value,
+            "light_lux": self.light_lux_value,
         }
 
 
