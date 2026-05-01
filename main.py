@@ -135,20 +135,18 @@ class LightSensor:
 
 
 class Environment:
-    def __init__(self, sensors):
-        self.sensors = sensors
+    def __init__(self, config):
+        i2c_bus = board.I2C()
+
+        self.sensors = [
+            DHT22.build(),
+            SoilProbe.build(i2c_bus, config),
+            LightSensor.build(i2c_bus, config),
+        ]
 
     @classmethod
     def build(cls, config):
-        i2c_bus = board.I2C()
-
-        return cls(
-            sensors=[
-                DHT22.build(),
-                SoilProbe.build(i2c_bus, config),
-                LightSensor.build(i2c_bus, config),
-            ]
-        )
+        return cls(config)
 
     def read(self):
         values = {}
@@ -173,18 +171,23 @@ class Environment:
 
 class InfluxDB:
     def __init__(self, config):
-        self.config = config
+        self.url = config.influxdb_url
+        self.org = config.influxdb_org
+        self.bucket = config.influxdb_bucket
+        self.token = config.influxdb_token
+        self.location = config.location
+        self.measurement = config.measurement
 
     def write(self, reading):
         response = requests.post(
-            self.config.influxdb_url,
+            self.url,
             params={
-                "org": self.config.influxdb_org,
-                "bucket": self.config.influxdb_bucket,
+                "org": self.org,
+                "bucket": self.bucket,
                 "precision": "s",
             },
             headers={
-                "Authorization": f"Token {self.config.influxdb_token}",
+                "Authorization": f"Token {self.token}",
                 "Content-Type": "text/plain",
             },
             data=self.line_protocol(reading),
@@ -200,7 +203,7 @@ class InfluxDB:
         fields = reading.fields()
 
         return (
-            f"{self.config.measurement},location={self.config.location} "
+            f"{self.measurement},location={self.location} "
             f"{','.join(f'{name}={value}' for name, value in fields.items())}"
         )
 
