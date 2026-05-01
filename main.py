@@ -59,6 +59,15 @@ class Reading:
             light_lux=round(self.light_lux, 2),
         )
 
+    def fields(self):
+        return {
+            "temperature_c": self.temperature_c,
+            "temperature_f": round(self.temperature_f, 2),
+            "humidity_percent": self.humidity_percent,
+            "soil_moisture_voltage": self.soil_moisture_voltage,
+            "light_lux": self.light_lux,
+        }
+
 
 class DHT22:
     def __init__(self, sensor):
@@ -147,12 +156,7 @@ class Environment:
         for sensor in self.sensors:
             values.update(sensor.read())
 
-        return Reading(
-            temperature_c=values["temperature_c"],
-            humidity_percent=values["humidity_percent"],
-            soil_moisture_voltage=values["soil_moisture_voltage"],
-            light_lux=values["light_lux"],
-        ).rounded()
+        return Reading(**values).rounded()
 
     def close(self):
         errors = []
@@ -193,26 +197,21 @@ class InfluxDB:
         pass
 
     def line_protocol(self, reading):
+        fields = reading.fields()
+
         return (
             f"{self.config.measurement},location={self.config.location} "
-            f"temperature_c={reading.temperature_c},"
-            f"temperature_f={round(reading.temperature_f, 2)},"
-            f"humidity_percent={reading.humidity_percent},"
-            f"soil_moisture_voltage={reading.soil_moisture_voltage},"
-            f"light_lux={reading.light_lux}"
+            f"{','.join(f'{name}={value}' for name, value in fields.items())}"
         )
 
 
 def print_reading(reading):
     current_time = datetime.now().strftime("%a %b %d, %I:%M:%S %p")
+    fields = reading.fields()
 
     print(
         f"time={current_time} "
-        f"temp_f={reading.temperature_f:.1f} "
-        f"temp_c={reading.temperature_c:.1f} "
-        f"humidity={reading.humidity_percent:.1f} "
-        f"soil_voltage={reading.soil_moisture_voltage:.3f} "
-        f"light_lux={reading.light_lux:.2f}"
+        f"{' '.join(f'{name}={value}' for name, value in fields.items())}"
     )
 
 
