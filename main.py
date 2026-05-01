@@ -47,25 +47,13 @@ class Reading:
     soil_moisture_voltage: float
     light_lux: float
 
-    @property
-    def temperature_f(self):
-        return (self.temperature_c * 9 / 5) + 32
-
-    def rounded(self):
-        return Reading(
-            temperature_c=round(self.temperature_c, 2),
-            humidity_percent=round(self.humidity_percent, 2),
-            soil_moisture_voltage=round(self.soil_moisture_voltage, 3),
-            light_lux=round(self.light_lux, 2),
-        )
-
     def fields(self):
         return {
-            "temperature_c": self.temperature_c,
-            "temperature_f": round(self.temperature_f, 2),
-            "humidity_percent": self.humidity_percent,
-            "soil_moisture_voltage": self.soil_moisture_voltage,
-            "light_lux": self.light_lux,
+            "temperature_c": round(self.temperature_c, 2),
+            "temperature_f": round((self.temperature_c * 9 / 5) + 32, 2),
+            "humidity_percent": round(self.humidity_percent, 2),
+            "soil_moisture_voltage": round(self.soil_moisture_voltage, 3),
+            "light_lux": round(self.light_lux, 2),
         }
 
 
@@ -154,7 +142,7 @@ class Environment:
         for sensor in self.sensors:
             values.update(sensor.read())
 
-        return Reading(**values).rounded()
+        return Reading(**values)
 
     def close(self):
         errors = []
@@ -200,21 +188,18 @@ class InfluxDB:
         pass
 
     def line_protocol(self, reading):
-        fields = reading.fields()
-
         return (
             f"{self.measurement},location={self.location} "
-            f"{','.join(f'{name}={value}' for name, value in fields.items())}"
+            f"{','.join(f'{name}={value}' for name, value in reading.fields().items())}"
         )
 
 
 def print_reading(reading):
     current_time = datetime.now().strftime("%a %b %d, %I:%M:%S %p")
-    fields = reading.fields()
 
     print(
         f"time={current_time} "
-        f"{' '.join(f'{name}={value}' for name, value in fields.items())}"
+        f"{' '.join(f'{name}={value}' for name, value in reading.fields().items())}"
     )
 
 
