@@ -3,6 +3,9 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 
+import time
+from statistics import mean
+
 import requests
 import board
 import adafruit_dht
@@ -25,6 +28,10 @@ class Config:
     measurement: str
     ads1115_address: int
     bh1750_address: int
+    dht22_sample_count: int
+    dht22_sample_delay_seconds: float
+    dht22_discard_initial_samples: int
+
 
     @classmethod
     def from_env(cls):
@@ -37,6 +44,9 @@ class Config:
             measurement=os.getenv("INFLUXDB_MEASUREMENT", "plant_environment"),
             ads1115_address=int(os.getenv("ADS1115_ADDRESS", "0x48"), 16),
             bh1750_address=int(os.getenv("BH1750_ADDRESS", "0x23"), 16),
+            dht22_sample_count=int(os.getenv("DHT22_SAMPLE_COUNT", "5")),
+            dht22_sample_delay_seconds=float(os.getenv("DHT22_SAMPLE_DELAY_SECONDS", "2")),
+            dht22_discard_initial_samples=int(os.getenv("DHT22_DISCARD_INITIAL_SAMPLES", "1")),
         )
 
 
@@ -111,24 +121,69 @@ class ConsoleReading:
 
 
 class DHT22:
-    def __init__(self, sensor):
+    def __init__(self, sensor, sample_count, sample_delay_seconds, discard_initial_samples):
         self.sensor = sensor
+        self.sample_count = sample_count
+        self.sample_delay_seconds = sample_delay_seconds
+        self.discard_initial_samples = discard_initial_samples
 
     @classmethod
-    def build(cls):
-        return cls(adafruit_dht.DHT22(board.D17))
+    def build(cls, config):
+        return cls(
+            sensor=adafruit_dht.DHT22(board.D17),
+            sample_count=config.dht22_sample_count,
+            sample_delay_seconds=config.dht22_sample_delay_seconds,
+            discard_initial_samples=config.dht22_discard_initial_samples,
+        )
 
     def read(self):
-        temperature_c = self.sensor.temperature
-        humidity_percent = self.sensor.humidity
+        samples = self.samples()
 
-        if temperature_c is None or humidity_percent is None:
-            raise RuntimeError("DHT22 returned no data")
+        if not samples:
+            raise RuntimeError("DHT22 returned no usable samples")
 
         return {
-            "temperature_c": temperature_c,
-            "humidity_percent": humidity_percent,
+            "temperature_c": mean(sample["temperature_c"] for sample in samples),
+            "humidity_percent": mean(sample["humidity_percent"] for sample in samples),
         }
+
+    def samples(self):
+        samples = []
+
+        for attempt in range(self.total_attempts):
+            sample = self.sample()
+
+            if sample and attempt >= self.discard_initial_samples:
+                samples.append(sample)
+
+            self.sleep_between_samples(attempt)
+
+        return samples
+
+    def sample(self):
+        try:
+            temperature_c = self.sensor.temperature
+            humidity_percent = self.sensor.humidity
+
+            if temperature_c is None or humidity_percent is None:
+                return None
+
+            return {
+                "temperature_c": temperature_c,
+                "humidity_percent": humidity_percent,
+            }
+
+        except RuntimeError:
+            # DHT22 reads are occasionally flaky. Skip the failed sample.
+            return None
+
+    def sleep_between_samples(self, attempt):
+        if attempt < self.total_attempts - 1:
+            time.sleep(self.sample_delay_seconds)
+
+    @property
+    def total_attempts(self):
+        return self.sample_count + self.discard_initial_samples
 
     def close(self):
         self.sensor.exit()
@@ -180,7 +235,7 @@ class Environment:
         i2c_bus = board.I2C()
 
         self.sensors = [
-            DHT22.build(),
+            DHT22.build(config),
             SoilProbe.build(i2c_bus, config),
             LightSensor.build(i2c_bus, config),
         ]
