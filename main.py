@@ -1,14 +1,13 @@
+#!/usr/bin/env python3
+
 import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 
-import time
-from statistics import mean
-
 import requests
 import board
-import adafruit_dht
+import adafruit_bme280.basic as adafruit_bme280
 import adafruit_bh1750
 from dotenv import load_dotenv
 from adafruit_ads1x15 import ADS1115, AnalogIn, ads1x15
@@ -28,10 +27,7 @@ class Config:
     measurement: str
     ads1115_address: int
     bh1750_address: int
-    dht22_sample_count: int
-    dht22_sample_delay_seconds: float
-    dht22_discard_initial_samples: int
-
+    bme280_address: int
 
     @classmethod
     def from_env(cls):
@@ -44,9 +40,7 @@ class Config:
             measurement=os.getenv("INFLUXDB_MEASUREMENT", "plant_environment"),
             ads1115_address=int(os.getenv("ADS1115_ADDRESS", "0x48"), 16),
             bh1750_address=int(os.getenv("BH1750_ADDRESS", "0x23"), 16),
-            dht22_sample_count=int(os.getenv("DHT22_SAMPLE_COUNT", "5")),
-            dht22_sample_delay_seconds=float(os.getenv("DHT22_SAMPLE_DELAY_SECONDS", "2")),
-            dht22_discard_initial_samples=int(os.getenv("DHT22_DISCARD_INITIAL_SAMPLES", "1")),
+            bme280_address=int(os.getenv("BME280_ADDRESS", "0x76"), 16),
         )
 
 
@@ -54,6 +48,7 @@ class Config:
 class Reading:
     temperature_c: float
     humidity_percent: float
+    pressure_hpa: float
     soil_moisture_voltage: float
     light_lux: float
 
@@ -70,6 +65,10 @@ class Reading:
         return round(self.humidity_percent, 2)
 
     @property
+    def pressure_hpa_value(self):
+        return round(self.pressure_hpa, 2)
+
+    @property
     def soil_moisture_voltage_value(self):
         return round(self.soil_moisture_voltage, 3)
 
@@ -83,6 +82,7 @@ class Reading:
             "temperature_c": self.temperature_c_value,
             "temperature_f": self.temperature_f,
             "humidity_percent": self.humidity_percent_value,
+            "pressure_hpa": self.pressure_hpa_value,
             "soil_moisture_voltage": self.soil_moisture_voltage_value,
             "light_lux": self.light_lux_value,
         }
@@ -120,73 +120,29 @@ class ConsoleReading:
         return f"time={self.timestamp} {self.fields}"
 
 
-class DHT22:
-    def __init__(self, sensor, sample_count, sample_delay_seconds, discard_initial_samples):
+class BME280:
+    def __init__(self, sensor):
         self.sensor = sensor
-        self.sample_count = sample_count
-        self.sample_delay_seconds = sample_delay_seconds
-        self.discard_initial_samples = discard_initial_samples
 
     @classmethod
-    def build(cls, config):
-        return cls(
-            sensor=adafruit_dht.DHT22(board.D17),
-            sample_count=config.dht22_sample_count,
-            sample_delay_seconds=config.dht22_sample_delay_seconds,
-            discard_initial_samples=config.dht22_discard_initial_samples,
+    def build(cls, i2c_bus, config):
+        sensor = adafruit_bme280.Adafruit_BME280_I2C(
+            i2c_bus,
+            address=config.bme280_address,
         )
 
+        return cls(sensor)
+
     def read(self):
-        samples = self.samples()
-
-        if not samples:
-            raise RuntimeError("DHT22 returned no usable samples")
-
         return {
-            "temperature_c": mean(sample["temperature_c"] for sample in samples),
-            "humidity_percent": mean(sample["humidity_percent"] for sample in samples),
+            "temperature_c": self.sensor.temperature,
+            "humidity_percent": self.sensor.relative_humidity,
+            "pressure_hpa": self.sensor.pressure,
         }
 
-    def samples(self):
-        samples = []
-
-        for attempt in range(self.total_attempts):
-            sample = self.sample()
-
-            if sample and attempt >= self.discard_initial_samples:
-                samples.append(sample)
-
-            self.sleep_between_samples(attempt)
-
-        return samples
-
-    def sample(self):
-        try:
-            temperature_c = self.sensor.temperature
-            humidity_percent = self.sensor.humidity
-
-            if temperature_c is None or humidity_percent is None:
-                return None
-
-            return {
-                "temperature_c": temperature_c,
-                "humidity_percent": humidity_percent,
-            }
-
-        except RuntimeError:
-            # DHT22 reads are occasionally flaky. Skip the failed sample.
-            return None
-
-    def sleep_between_samples(self, attempt):
-        if attempt < self.total_attempts - 1:
-            time.sleep(self.sample_delay_seconds)
-
-    @property
-    def total_attempts(self):
-        return self.sample_count + self.discard_initial_samples
-
     def close(self):
-        self.sensor.exit()
+        # BME280 does not expose a sensor-level close.
+        pass
 
 
 class SoilProbe:
@@ -235,7 +191,7 @@ class Environment:
         i2c_bus = board.I2C()
 
         self.sensors = [
-            DHT22.build(config),
+            BME280.build(i2c_bus, config),
             SoilProbe.build(i2c_bus, config),
             LightSensor.build(i2c_bus, config),
         ]
