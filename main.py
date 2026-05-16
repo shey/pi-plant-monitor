@@ -2,6 +2,8 @@
 
 import os
 import sys
+import json
+
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -106,18 +108,17 @@ class ConsoleReading:
 
     @property
     def timestamp(self):
-        return datetime.now().strftime("%a %b %d, %I:%M:%S %p")
-
-    @property
-    def fields(self):
-        return " ".join(
-            f"{name}={value}"
-            for name, value in self.reading.fields.items()
-        )
+        return datetime.now().isoformat(timespec="seconds")
 
     @property
     def output(self):
-        return f"time={self.timestamp} {self.fields}"
+        return json.dumps(
+            {
+                "time": self.timestamp,
+                **self.reading.fields,
+            },
+            sort_keys=True,
+        )
 
 
 class BME280:
