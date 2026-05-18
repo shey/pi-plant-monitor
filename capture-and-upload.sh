@@ -31,42 +31,46 @@ build_latest_s3_uri() {
 }
 
 capture_image() {
+  # Discards the first 0.5 seconds of frames (-ss 0.5) to allow sensor calibration
+  # Brought gamma back up to 1.0 to restore midtones, slightly reduced contrast, 
+  # and used lutyuv to lift the overall shadow exposure cleanly.
   ffmpeg \
     -loglevel error \
     -f v4l2 \
     -input_format mjpeg \
     -video_size "${VIDEO_SIZE}" \
     -i "${VIDEO_DEVICE}" \
+    -ss 0.5 \
     -frames:v 1 \
-    -vf "unsharp=5:5:1.0:5:5:0.0, eq=gamma=0.8:saturation=1.1" \
+    -vf "unsharp=5:5:1.0:5:5:0.0, eq=gamma=1.0:contrast=1.05:saturation=1.20, lutyuv=y=gammaval(1.15)" \
     -f image2pipe \
     -vcodec mjpeg \
     -q:v 2 \
     -
 }
 
-upload_image() {
-  local s3_uri="$1"
-
-  /usr/bin/s3cmd put \
-    --mime-type="image/jpeg" \
-    - \
-    "${s3_uri}"
-}
-
 main() {
   local timestamped_s3_uri
   local latest_s3_uri
+  local ram_buffer
 
   configure_camera
 
   timestamped_s3_uri="$(build_timestamped_s3_uri)"
   latest_s3_uri="$(build_latest_s3_uri)"
 
-  capture_image \
-    | tee >(upload_image "${latest_s3_uri}") \
-    | upload_image "${timestamped_s3_uri}"
+  # Temporary path in RAM to safely handle raw binary image bytes without degrading the SD card
+  ram_buffer="/dev/shm/plant_cam_tmp.jpg"
+
+  # Capture raw binary stream directly to RAM disk
+  capture_image > "${ram_buffer}"
+
+  # Executing with -q (quiet mode) to suppress the multi-stream console prints
+  /usr/bin/s3cmd put -q --mime-type="image/jpeg" "${ram_buffer}" "${latest_s3_uri}"
+  /usr/bin/s3cmd put -q --mime-type="image/jpeg" "${ram_buffer}" "${timestamped_s3_uri}"
+
+  # Clean up the RAM allocation
+  rm -f "${ram_buffer}"
 }
 
 main "$@"
-
