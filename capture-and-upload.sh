@@ -31,9 +31,6 @@ build_latest_s3_uri() {
 }
 
 capture_image() {
-  # Discards the first 0.5 seconds of frames (-ss 0.5) to allow sensor calibration
-  # Brought gamma back up to 1.0 to restore midtones, slightly reduced contrast, 
-  # and used lutyuv to lift the overall shadow exposure cleanly.
   ffmpeg \
     -loglevel error \
     -f v4l2 \
@@ -42,7 +39,7 @@ capture_image() {
     -i "${VIDEO_DEVICE}" \
     -ss 0.5 \
     -frames:v 1 \
-    -vf "unsharp=5:5:1.0:5:5:0.0, eq=gamma=1.0:contrast=1.05:saturation=1.20, lutyuv=y=gammaval(1.15)" \
+    -vf "unsharp=5:5:1.0:5:5:0.0, eq=gamma=1.15:contrast=1.05:saturation=1.20" \
     -f image2pipe \
     -vcodec mjpeg \
     -q:v 2 \
