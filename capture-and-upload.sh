@@ -11,9 +11,9 @@ configure_camera() {
   v4l2-ctl -d "${VIDEO_DEVICE}" \
     --set-ctrl=power_line_frequency=2 \
     --set-ctrl=white_balance_automatic=1 \
-    --set-ctrl=brightness=105 \
-    --set-ctrl=contrast=55 \
-    --set-ctrl=saturation=85
+    --set-ctrl=brightness=75 \
+    --set-ctrl=contrast=65 \
+    --set-ctrl=saturation=90
 }
 
 build_timestamped_s3_uri() {
@@ -37,9 +37,9 @@ capture_image() {
     -input_format mjpeg \
     -video_size "${VIDEO_SIZE}" \
     -i "${VIDEO_DEVICE}" \
-    -ss 1.0 \
+    -ss 1.5 \
     -frames:v 1 \
-    -vf "unsharp=5:5:1.0:5:5:0.0, eq=gamma=1.10:contrast=1.05:saturation=1.20" \
+    -vf "unsharp=5:5:1.0:5:5:0.0, eq=gamma=0.85:contrast=1.15:saturation=1.25" \
     -f image2pipe \
     -vcodec mjpeg \
     -q:v 2 \
