@@ -1,6 +1,8 @@
 import arrow
 import requests
 
+from main import Config
+
 config = Config.from_env()
 
 start = arrow.utcnow().shift(minutes=-5)
